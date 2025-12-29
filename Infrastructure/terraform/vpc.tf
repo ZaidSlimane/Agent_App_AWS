@@ -166,10 +166,28 @@ resource "aws_instance" "nat" {
   source_dest_check           = false
   vpc_security_group_ids      = [aws_security_group.nat.id]
 
+  user_data = <<-EOF
+    #!/bin/bash
+    set -e
+
+    echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+    sysctl -p
+
+    yum install -y iptables-services
+
+    iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+    iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+    iptables -A FORWARD -o eth0 -j ACCEPT
+
+    service iptables save
+    systemctl enable iptables
+  EOF
+
   tags = {
     Name = "nat-instance"
   }
 }
+
 
 resource "aws_eip_association" "nat_assoc" {
   instance_id   = aws_instance.nat.id
@@ -204,19 +222,11 @@ resource "aws_security_group" "alb" {
   }
 }
 
-# EKS nodes SG
 resource "aws_security_group" "eks_nodes" {
   name   = "eks-nodes-sg"
   vpc_id = aws_vpc.lab.id
 
-  ingress {
-    description     = "From ALB"
-    protocol        = "tcp"
-    from_port       = 80
-    to_port         = 80
-    security_groups = [aws_security_group.alb.id]
-  }
-
+  # Node-to-node
   ingress {
     description = "Node to node"
     protocol    = "-1"
@@ -225,6 +235,32 @@ resource "aws_security_group" "eks_nodes" {
     self        = true
   }
 
+  # Control plane -> kubelet and API on nodes (lab-safe, wide)
+  ingress {
+    description = "EKS control plane to nodes (kubelet/API)"
+    protocol    = "tcp"
+    from_port   = 443
+    to_port     = 443
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    description = "EKS control plane to kubelet (10250)"
+    protocol    = "tcp"
+    from_port   = 10250
+    to_port     = 10250
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # ALB -> nodes (if you truly need NodePort on 80; otherwise route via Service/Ingress)
+  ingress {
+    description     = "From ALB"
+    protocol        = "tcp"
+    from_port       = 80
+    to_port         = 80
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  # Egress to the world (ECR, S3, STS, EKS endpoint, DNS)
   egress {
     protocol    = "-1"
     from_port   = 0
@@ -232,6 +268,7 @@ resource "aws_security_group" "eks_nodes" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 }
+
 
 # RDS SG
 resource "aws_security_group" "rds" {
@@ -254,8 +291,10 @@ resource "aws_eks_cluster" "lab" {
   role_arn = var.eks_cluster_role_arn
 
   vpc_config {
-    subnet_ids         = [aws_subnet.private_app.id, aws_subnet.public.id, aws_subnet.private_app_b.id, aws_subnet.private_db_b.id]
-    security_group_ids = [aws_security_group.eks_nodes.id]
+    subnet_ids = [
+      aws_subnet.private_app.id,
+      aws_subnet.private_app_b.id
+    ]
   }
 }
 
@@ -263,7 +302,11 @@ resource "aws_eks_node_group" "lab" {
   cluster_name    = aws_eks_cluster.lab.name
   node_group_name = "lab-nodes"
   node_role_arn   = var.eks_node_role_arn
-  subnet_ids      = [aws_subnet.private_app.id]
+
+  subnet_ids = [
+    aws_subnet.private_app.id,
+    aws_subnet.private_app_b.id
+  ]
 
   instance_types = ["t3.small"]
 
@@ -272,7 +315,12 @@ resource "aws_eks_node_group" "lab" {
     min_size     = 1
     max_size     = 3
   }
+
+  depends_on = [
+    aws_route.private_nat_route
+  ]
 }
+
 
  # RDS
  
