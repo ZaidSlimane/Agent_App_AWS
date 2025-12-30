@@ -46,7 +46,7 @@ pipeline {
                   break
                 }
 
-                echo "⏳ Resources still present (waiting before any action)"
+                echo "Resources still present (waiting before any action)"
                 echo state
                 waitCount++
                 sleep time: 30, unit: 'SECONDS'
