@@ -13,7 +13,7 @@ pipeline {
       }
     }
 
-    stage('AWS Identity + Terraform') {
+    stage('AWS + Terraform') {
       steps {
         withCredentials([
           string(credentialsId: 'aws_access_key_id', variable: 'AWS_ACCESS_KEY_ID'),
@@ -21,12 +21,26 @@ pipeline {
           string(credentialsId: 'aws_session_token', variable: 'AWS_SESSION_TOKEN')
         ]) {
 
-          sh 'aws sts get-caller-identity'
+          script {
+            try {
+              sh 'aws sts get-caller-identity'
 
-          dir('Infrastructure/terraform') {
-            sh 'terraform init'
-            sh 'terraform plan'
-            sh 'terraform apply -auto-approve'
+              dir('Infrastructure/terraform') {
+                sh 'terraform init'
+                sh 'terraform plan'
+                sh 'terraform apply -auto-approve'
+              }
+
+            } catch (err) {
+
+              echo 'Error detected — running terraform destroy'
+
+              dir('Infrastructure/terraform') {
+                sh 'terraform destroy -auto-approve || true'
+              }
+
+              error "Pipeline failed, infrastructure destroyed"
+            }
           }
         }
       }
