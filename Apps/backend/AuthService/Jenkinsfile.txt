@@ -1,0 +1,53 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION     = "us-east-1"
+        AWS_ACCOUNT_ID = "891377262030"
+        ECR_REPO       = "agent_repo"
+    }
+
+    stages {
+
+        stage("Checkout") {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage("Login to AWS ECR") {
+            steps {
+                withCredentials([
+                    string(credentialsId: 'aws_access_key_id', variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws_secret_access_key', variable: 'AWS_SECRET_ACCESS_KEY'),
+                    string(credentialsId: 'aws_session_token', variable: 'AWS_SESSION_TOKEN')
+                ]) {
+                    sh '''
+                        aws ecr get-login-password --region $AWS_REGION \
+                        | docker login --username AWS --password-stdin \
+                          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+                    '''
+                }
+            }
+        }
+
+        stage("Build Docker Image") {
+            steps {
+                sh '''
+                    docker build -t $ECR_REPO:authApp .
+                    docker tag $ECR_REPO:authApp \
+                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:authApp
+                '''
+            }
+        }
+
+        stage("Push Image to ECR") {
+            steps {
+                sh '''
+                    docker push \
+                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:authApp
+                '''
+            }
+        }
+    }
+}
