@@ -6,9 +6,12 @@ pipeline {
         AWS_ACCOUNT_ID = "891377262030"
         ECR_REPO       = "agent_repo"
         EKS_CLUSTER    = "lab-eks"
+        NAMESPACE      = "backend"
+        IMAGE_TAG      = "authApp"
     }
 
     stages {
+
         stage("Checkout") {
             steps {
                 checkout scm
@@ -31,21 +34,14 @@ pipeline {
             }
         }
 
-        stage("Build Docker Image") {
+        stage("Build & Push Image (single tag)") {
             steps {
                 sh '''
-                    docker build -t $ECR_REPO:authApp .
-                    docker tag $ECR_REPO:authApp \
-                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:authApp
-                '''
-            }
-        }
-
-        stage("Push Image to ECR") {
-            steps {
-                sh '''
+                    docker build -t $ECR_REPO:$IMAGE_TAG .
+                    docker tag $ECR_REPO:$IMAGE_TAG \
+                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
                     docker push \
-                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:authApp
+                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
                 '''
             }
         }
@@ -60,18 +56,27 @@ pipeline {
             }
         }
 
-        stage("Deploy AuthApp to Kubernetes") {
+        stage("Deploy AuthApp") {
             steps {
                 withCredentials([
                     string(credentialsId: 'database_url', variable: 'DATABASE_URL')
                 ]) {
                     sh '''
                         cd Kubernetes/backend/AuthApp || exit 1
+
+                        kubectl create namespace $NAMESPACE \
+                          --dry-run=client -o yaml | kubectl apply -f -
+
                         kubectl create secret generic app-secrets \
+                          -n $NAMESPACE \
                           --from-literal=database-url="$DATABASE_URL" \
                           --dry-run=client -o yaml | kubectl apply -f -
-                        kubectl apply -f Service.yaml
-                        kubectl apply -f deployment.yaml
+
+                        kubectl apply -n $NAMESPACE -f Service.yaml
+                        kubectl apply -n $NAMESPACE -f deployment.yaml
+
+                        kubectl rollout restart deployment/auth-app -n $NAMESPACE
+                        kubectl rollout status deployment/auth-app -n $NAMESPACE --timeout=120s
                     '''
                 }
             }
