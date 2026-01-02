@@ -1,53 +1,28 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orchestrator-app
+  name: auth-app 
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: orchestrator-app
+      app: auth-app 
   template:
     metadata:
       labels:
-        app: orchestrator-app
+        app: auth-app 
     spec:
       containers:
-      - name: orchestrator-app
-        image: <your-ecr-repo>:latest
+      - name: auth-app
+       
+        image: 891377262030.dkr.ecr.us-east-1.amazonaws.com/agent_repo:authApp
         ports:
         - containerPort: 5001
         env:
-        # Tell Python app to skip .env and use AWS env vars
         - name: ENV
           value: "aws"
-
-        # Non-sensitive values from ConfigMap
-        - name: N8N_WEBHOOK_URL
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: n8n-webhook-url
-
-        # Sensitive DB URL from Secret
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
               name: app-secrets
               key: database-url
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: app-config
-data:
-  n8n-webhook-url: "http://n8n-service:5678/webhook-test/incoming-message"
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: app-secrets
-type: Opaque
-data:
-  # base64-encoded full DB URL
-  database-url: <base64-encoded-postgres-url>
