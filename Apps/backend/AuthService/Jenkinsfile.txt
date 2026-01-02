@@ -23,8 +23,8 @@ pipeline {
                     string(credentialsId: 'aws_session_token', variable: 'AWS_SESSION_TOKEN')
                 ]) {
                     sh '''
-                        aws ecr get-login-password --region $AWS_REGION \
-                        | docker login --username AWS --password-stdin \
+                        sudo aws ecr get-login-password --region $AWS_REGION \
+                        | sudo docker login --username AWS --password-stdin \
                           $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
                     '''
                 }
@@ -34,8 +34,8 @@ pipeline {
         stage("Build Docker Image") {
             steps {
                 sh '''
-                    docker build -t $ECR_REPO:authApp .
-                    docker tag $ECR_REPO:authApp \
+                    sudo docker build -t $ECR_REPO:authApp .
+                    sudo docker tag $ECR_REPO:authApp \
                       $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:authApp
                 '''
             }
@@ -44,7 +44,7 @@ pipeline {
         stage("Push Image to ECR") {
             steps {
                 sh '''
-                    docker push \
+                    sudo docker push \
                       $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:authApp
                 '''
             }
