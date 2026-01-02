@@ -5,9 +5,9 @@ pipeline {
         AWS_REGION     = "us-east-1"
         AWS_ACCOUNT_ID = "891377262030"
         ECR_REPO       = "agent_repo"
+        IMAGE_TAG      = "authApp"
         EKS_CLUSTER    = "lab-eks"
         NAMESPACE      = "backend"
-        IMAGE_TAG      = "authApp"
     }
 
     stages {
@@ -18,7 +18,15 @@ pipeline {
             }
         }
 
-        stage("Login to AWS ECR") {
+        stage("Build Docker Image") {
+            steps {
+                sh '''
+                    docker build -t $ECR_REPO:$IMAGE_TAG .
+                '''
+            }
+        }
+
+        stage("Login to ECR") {
             steps {
                 withCredentials([
                     string(credentialsId: 'aws_access_key_id', variable: 'AWS_ACCESS_KEY_ID'),
@@ -34,35 +42,27 @@ pipeline {
             }
         }
 
-        stage("Build & Push Image (single tag)") {
+        stage("Push Image") {
             steps {
                 sh '''
-                    docker build -t $ECR_REPO:$IMAGE_TAG .
                     docker tag $ECR_REPO:$IMAGE_TAG \
                       $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+
                     docker push \
                       $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
                 '''
             }
         }
 
-        stage("Configure EKS Access") {
-            steps {
-                sh '''
-                    aws eks update-kubeconfig \
-                      --region $AWS_REGION \
-                      --name $EKS_CLUSTER
-                '''
-            }
-        }
-
-        stage("Deploy AuthApp") {
+        stage("Deploy to EKS") {
             steps {
                 withCredentials([
                     string(credentialsId: 'database_url', variable: 'DATABASE_URL')
                 ]) {
                     sh '''
-                        cd Kubernetes/backend/AuthApp || exit 1
+                        aws eks update-kubeconfig \
+                          --region $AWS_REGION \
+                          --name $EKS_CLUSTER
 
                         kubectl create namespace $NAMESPACE \
                           --dry-run=client -o yaml | kubectl apply -f -
@@ -72,8 +72,11 @@ pipeline {
                           --from-literal=database-url="$DATABASE_URL" \
                           --dry-run=client -o yaml | kubectl apply -f -
 
-                        kubectl apply -n $NAMESPACE -f Service.yaml
-                        kubectl apply -n $NAMESPACE -f deployment.yaml
+                        kubectl apply -n $NAMESPACE \
+                          -f Kubernetes/backend/AuthApp/Service.yaml
+
+                        kubectl apply -n $NAMESPACE \
+                          -f Kubernetes/backend/AuthApp/deployment.yaml
 
                         kubectl rollout restart deployment/auth-app -n $NAMESPACE
                         kubectl rollout status deployment/auth-app -n $NAMESPACE --timeout=120s
