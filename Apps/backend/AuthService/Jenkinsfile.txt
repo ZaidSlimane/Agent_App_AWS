@@ -5,6 +5,7 @@ pipeline {
         AWS_REGION     = "us-east-1"
         AWS_ACCOUNT_ID = "891377262030"
         ECR_REPO       = "agent_repo"
+        EKS_CLUSTER    = "lab-eks"
     }
 
     stages {
@@ -47,6 +48,35 @@ pipeline {
                     sudo docker push \
                       $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:authApp
                 '''
+            }
+        }
+
+        stage("Configure EKS Access") {
+            steps {
+                sh '''
+                    aws eks update-kubeconfig \
+                      --region $AWS_REGION \
+                      --name $EKS_CLUSTER
+                '''
+            }
+        }
+
+        stage("Deploy AuthApp to Kubernetes") {
+            steps {
+                withCredentials([
+                    string(credentialsId: 'database_url', variable: 'DATABASE_URL')
+                ]) {
+                    sh '''
+                        cd Kubernetes/backend/AuthApp
+
+                        kubectl create secret generic app-secrets \
+                          --from-literal=database-url="$DATABASE_URL" \
+                          --dry-run=client -o yaml | kubectl apply -f -
+
+                        kubectl apply -f Service.yaml
+						kubectl apply -f deployment.yaml
+                    '''
+                }
             }
         }
     }
