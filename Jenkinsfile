@@ -1,41 +1,55 @@
 pipeline {
-  agent any
+    agent any
 
-  environment {
-    AWS_DEFAULT_REGION = 'us-east-1'
-  }
-
-  stages {
-
-    stage('Checkout') {
-      steps {
-        checkout scm
-      }
+    environment {
+        AWS_REGION     = "us-east-1"
+        AWS_ACCOUNT_ID = "891377262030"
+        ECR_REPO       = "agent_repo"
     }
 
-    stage('Terraform') {
-      steps {
-        withCredentials([
-          string(credentialsId: 'aws_access_key_id', variable: 'AWS_ACCESS_KEY_ID'),
-          string(credentialsId: 'aws_secret_access_key', variable: 'AWS_SECRET_ACCESS_KEY'),
-          string(credentialsId: 'aws_session_token', variable: 'AWS_SESSION_TOKEN')
-        ]) {
+    stages {
 
-          dir('Infrastructure/terraform') {
-
-            sh 'aws sts get-caller-identity'
-
-            sh 'terraform init -input=false'
-            sh 'terraform validate'
-
-            // Plan
-            sh 'terraform plan -input=false'
-
-            // Apply
-            sh 'terraform apply -auto-approve -input=false'
-          }
+        stage("Checkout") {
+            steps {
+                checkout scm
+            }
         }
-      }
+
+        stage("Login to AWS ECR") {
+            steps {
+                withCredentials([
+                    string(credentialsId: 'aws_access_key_id', variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws_secret_access_key', variable: 'AWS_SECRET_ACCESS_KEY'),
+                    string(credentialsId: 'aws_session_token', variable: 'AWS_SESSION_TOKEN')
+                ]) {
+                    sh '''
+                        aws ecr get-login-password --region $AWS_REGION \
+                        | docker login --username AWS --password-stdin \
+                          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+                    '''
+                }
+            }
+        }
+
+        stage("Build & Tag Docker Image") {
+            steps {
+                dir('Apps/backend/AuthService') {
+                    sh '''
+                        docker build -t agent_repo:authApp .
+                        docker tag agent_repo:authApp \
+                          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/agent_repo:authApp
+                    '''
+                }
+            }
+        }
+
+        stage("Push Image to ECR") {
+            steps {
+                sh '''
+                    docker push \
+                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/agent_repo:authApp
+                '''
+            }
+        }
     }
-  }
 }
