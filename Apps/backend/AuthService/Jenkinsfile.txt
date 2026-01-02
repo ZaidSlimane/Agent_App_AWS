@@ -9,7 +9,6 @@ pipeline {
     }
 
     stages {
-
         stage("Checkout") {
             steps {
                 checkout scm
@@ -24,8 +23,8 @@ pipeline {
                     string(credentialsId: 'aws_session_token', variable: 'AWS_SESSION_TOKEN')
                 ]) {
                     sh '''
-                        sudo aws ecr get-login-password --region $AWS_REGION \
-                        | sudo docker login --username AWS --password-stdin \
+                        aws ecr get-login-password --region $AWS_REGION \
+                        | docker login --username AWS --password-stdin \
                           $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
                     '''
                 }
@@ -35,8 +34,8 @@ pipeline {
         stage("Build Docker Image") {
             steps {
                 sh '''
-                    sudo docker build -t $ECR_REPO:authApp .
-                    sudo docker tag $ECR_REPO:authApp \
+                    docker build -t $ECR_REPO:authApp .
+                    docker tag $ECR_REPO:authApp \
                       $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:authApp
                 '''
             }
@@ -45,7 +44,7 @@ pipeline {
         stage("Push Image to ECR") {
             steps {
                 sh '''
-                    sudo docker push \
+                    docker push \
                       $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:authApp
                 '''
             }
@@ -67,15 +66,12 @@ pipeline {
                     string(credentialsId: 'database_url', variable: 'DATABASE_URL')
                 ]) {
                     sh '''
-                        cd Kubernetes/backend/AuthApp
-
+                        cd Kubernetes/backend/AuthApp || exit 1
                         kubectl create secret generic app-secrets \
                           --from-literal=database-url="$DATABASE_URL" \
                           --dry-run=client -o yaml | kubectl apply -f -
-
                         kubectl apply -f Service.yaml
-						
-						kubectl apply -f deployment.yaml
+                        kubectl apply -f deployment.yaml
                     '''
                 }
             }
