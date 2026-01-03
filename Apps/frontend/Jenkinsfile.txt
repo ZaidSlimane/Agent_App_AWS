@@ -1,0 +1,63 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION     = "us-east-1"
+        AWS_ACCOUNT_ID = "891377262030"
+        ECR_REPO       = "frontend_repo"
+        EKS_CLUSTER    = "lab-eks"
+    }
+
+    stages {
+        stage("Checkout") {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage("Login to AWS ECR") {
+            steps {
+                withCredentials([
+                    string(credentialsId: 'aws_access_key_id', variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws_secret_access_key', variable: 'AWS_SECRET_ACCESS_KEY'),
+                    string(credentialsId: 'aws_session_token', variable: 'AWS_SESSION_TOKEN')
+                ]) {
+                    sh '''
+                        aws ecr get-login-password --region $AWS_REGION \
+                        | docker login --username AWS --password-stdin \
+                          $AWS_ACCOUNT_ID.dkr. ecr.$AWS_REGION. amazonaws.com
+                    '''
+                }
+            }
+        }
+
+        stage("Build Frontend Image") {
+            steps {
+                dir('apps/frontend') {
+                    sh '''
+                        docker build -t $ECR_REPO:latest .
+                        docker tag $ECR_REPO:latest \
+                          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest
+                    '''
+                }
+            }
+        }
+
+        stage("Push Image to ECR") {
+            steps {
+                sh 'docker push $AWS_ACCOUNT_ID. dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest'
+            }
+        }
+
+        stage("Deploy Frontend to EKS") {
+            steps {
+                sh 'aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER'
+                dir('kubernetes/frontend') {
+                    sh 'kubectl apply -f deployment.yaml'
+                    sh 'kubectl apply -f Service.yaml'
+                    sh 'kubectl rollout restart deployment/frontend-app'
+                }
+            }
+        }
+    }
+}
