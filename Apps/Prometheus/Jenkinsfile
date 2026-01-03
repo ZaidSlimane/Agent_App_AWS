@@ -10,24 +10,27 @@ pipeline {
 
   stages {
     stage('Checkout') {
-      steps {
-        checkout scm
-      }
+      steps { checkout scm }
     }
 
-    stage('Deploy Monitoring Stack') {
+    stage('Deploy Prometheus + Grafana (kube-prometheus-stack)') {
       steps {
+        // If you don't have Apps/Prometheus, remove this dir() block.
         dir('Apps/Prometheus') {
+          // Store Grafana admin password in Jenkins Credentials (Secret Text)
+          // Create a credential with ID: grafana-admin-pass
           withCredentials([string(credentialsId: 'grafana-admin-pass', variable: 'GRAFANA_ADMIN_PASS')]) {
             sh '''
               set -euo pipefail
 
+              echo "==> Add/update Helm repo"
               helm repo add prometheus-community "$HELM_REPO" >/dev/null 2>&1 || true
               helm repo update
 
-              # Idempotent namespace creation
+              echo "==> Ensure namespace exists"
               kubectl create namespace "$KUBE_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
+              echo "==> Install/upgrade kube-prometheus-stack"
               helm upgrade --install "$HELM_RELEASE" "$HELM_CHART" \
                 --namespace "$KUBE_NAMESPACE" \
                 --create-namespace \
@@ -35,7 +38,11 @@ pipeline {
                 --set prometheus.prometheusSpec.retention="7d" \
                 --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage="10Gi"
 
-              kubectl get pods -n "$KUBE_NAMESPACE"
+              echo "==> Wait a bit for pods to become ready (best effort)"
+              kubectl rollout status -n "$KUBE_NAMESPACE" deploy/"$HELM_RELEASE"-grafana --timeout=180s || true
+
+              echo "==> Show resources"
+              kubectl get pods -n "$KUBE_NAMESPACE" -o wide
               kubectl get svc  -n "$KUBE_NAMESPACE"
             '''
           }
@@ -46,10 +53,17 @@ pipeline {
 
   post {
     success {
-      echo "Prometheus and Grafana deployed successfully in namespace ${env.KUBE_NAMESPACE}"
+      echo "✅ Monitoring stack deployed successfully in namespace ${env.KUBE_NAMESPACE}"
     }
     failure {
-      echo "Deployment failed. Check logs above."
+      echo "❌ Deployment failed. Check the logs above."
+    }
+    always {
+      sh '''
+        set +e
+        echo "==> Quick debug snapshot"
+        kubectl get events -n "$KUBE_NAMESPACE" --sort-by=.lastTimestamp | tail -n 30 || true
+      '''
     }
   }
 }
