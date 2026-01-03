@@ -1,0 +1,65 @@
+pipeline {
+    agent any
+
+    environment {
+        KUBE_NAMESPACE = "monitoring"
+        HELM_RELEASE   = "monitoring"
+        HELM_CHART     = "prometheus-community/kube-prometheus-stack"
+        HELM_REPO      = "https://prometheus-community.github.io/helm-charts"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Setup Helm Repo') {
+            steps {
+                sh """
+                helm repo add prometheus-community ${HELM_REPO}
+                helm repo update
+                """
+            }
+        }
+
+        stage('Create Namespace') {
+            steps {
+                sh """
+                kubectl get namespace ${KUBE_NAMESPACE} || kubectl create namespace ${KUBE_NAMESPACE}
+                """
+            }
+        }
+
+        stage('Deploy Prometheus & Grafana') {
+            steps {
+                sh """
+                helm upgrade --install ${HELM_RELEASE} ${HELM_CHART} \
+                  --namespace ${KUBE_NAMESPACE} \
+                  --set grafana.adminPassword=admin123 \
+                  --set prometheus.prometheusSpec.retention=7d \
+                  --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=10Gi
+                """
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                sh """
+                kubectl get pods -n ${KUBE_NAMESPACE}
+                kubectl get svc -n ${KUBE_NAMESPACE}
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Prometheus and Grafana deployed successfully in namespace ${KUBE_NAMESPACE}"
+        }
+        failure {
+            echo "Deployment failed. Check logs above."
+        }
+    }
+}
