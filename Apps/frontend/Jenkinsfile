@@ -4,11 +4,11 @@ pipeline {
     environment {
         AWS_REGION            = "us-east-1"
         AWS_ACCOUNT_ID        = "891377262030"
-        ECR_REPO              = "frontend_repo"
+        ECR_REPO              = "agent_repo"
         EKS_CLUSTER           = "lab-eks"
+        IMAGE_TAG             = "frontend" 
         
-        // MOVED: Credentials must be global so 'Deploy' stage can use them too
-        // Assumes these are stored as "Secret Text" in Jenkins
+        // AWS Credentials
         AWS_ACCESS_KEY_ID     = credentials('aws_access_key_id')
         AWS_SECRET_ACCESS_KEY = credentials('aws_secret_access_key')
         AWS_SESSION_TOKEN     = credentials('aws_session_token')
@@ -23,7 +23,6 @@ pipeline {
 
         stage("Login to AWS ECR") {
             steps {
-                // Credentials are now inherited from global environment
                 sh '''
                     aws ecr get-login-password --region $AWS_REGION \
                     | docker login --username AWS --password-stdin \
@@ -35,11 +34,10 @@ pipeline {
         stage("Build Frontend Image") {
             steps {
                 dir('Apps/frontend') {
-                    // FIXED: Removed spaces in URL and tag
                     sh '''
-                        docker build -t $ECR_REPO:latest .
-                        docker tag $ECR_REPO:latest \
-                          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest
+                        docker build -t $ECR_REPO:$IMAGE_TAG .
+                        docker tag $ECR_REPO:$IMAGE_TAG \
+                          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
                     '''
                 }
             }
@@ -47,19 +45,19 @@ pipeline {
 
         stage("Push Image to ECR") {
             steps {
-                // FIXED: Removed spaces in URL
-                sh 'docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest'
+                
+                sh 'docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG'
             }
         }
 
         stage("Deploy Frontend to EKS") {
             steps {
-                // This command now has access to AWS credentials from the environment block
                 sh 'aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER'
                 
                 dir('kubernetes/frontend') {
+                    sh "sed -i 's|:latest|:$IMAGE_TAG|g' deployment.yaml"
+                    
                     sh 'kubectl apply -f deployment.yaml'
-                    // FIXED: Changed Service.yaml to service.yaml (check your actual filename)
                     sh 'kubectl apply -f service.yaml' 
                     sh 'kubectl rollout restart deployment/frontend-app'
                 }
