@@ -18,7 +18,7 @@ spec:
       - name: frontend
         image: 891377262030.dkr.ecr.us-east-1.amazonaws.com/agent_repo:frontend
         ports:
-        - containerPort: 3000
+        - containerPort: 80
         resources:
           requests:
             memory: "128Mi"
