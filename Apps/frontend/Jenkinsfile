@@ -18,14 +18,14 @@ pipeline {
         stage("Login to AWS ECR") {
             steps {
                 withCredentials([
-                    string(credentialsId: 'aws_access_key_id', variable: 'AWS_ACCESS_KEY_ID'),
-                    string(credentialsId: 'aws_secret_access_key', variable: 'AWS_SECRET_ACCESS_KEY'),
-                    string(credentialsId: 'aws_session_token', variable: 'AWS_SESSION_TOKEN')
+                    string(credentialsId:  'aws_access_key_id', variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId:  'aws_secret_access_key', variable: 'AWS_SECRET_ACCESS_KEY'),
+                    string(credentialsId:  'aws_session_token', variable: 'AWS_SESSION_TOKEN')
                 ]) {
                     sh '''
                         aws ecr get-login-password --region $AWS_REGION \
                         | docker login --username AWS --password-stdin \
-                          $AWS_ACCOUNT_ID.dkr. ecr.$AWS_REGION. amazonaws.com
+                          $AWS_ACCOUNT_ID. dkr. ecr.$AWS_REGION. amazonaws.com
                     '''
                 }
             }
@@ -33,11 +33,11 @@ pipeline {
 
         stage("Build Frontend Image") {
             steps {
-                dir('apps/frontend') {
+                dir('Apps/frontend') {
                     sh '''
                         docker build -t $ECR_REPO:latest .
                         docker tag $ECR_REPO:latest \
-                          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest
+                          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws. com/$ECR_REPO: latest
                     '''
                 }
             }
@@ -45,7 +45,7 @@ pipeline {
 
         stage("Push Image to ECR") {
             steps {
-                sh 'docker push $AWS_ACCOUNT_ID. dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest'
+                sh 'docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest'
             }
         }
 
