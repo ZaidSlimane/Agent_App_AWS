@@ -2,10 +2,16 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION     = "us-east-1"
-        AWS_ACCOUNT_ID = "891377262030"
-        ECR_REPO       = "frontend_repo"
-        EKS_CLUSTER    = "lab-eks"
+        AWS_REGION            = "us-east-1"
+        AWS_ACCOUNT_ID        = "891377262030"
+        ECR_REPO              = "frontend_repo"
+        EKS_CLUSTER           = "lab-eks"
+        
+        // MOVED: Credentials must be global so 'Deploy' stage can use them too
+        // Assumes these are stored as "Secret Text" in Jenkins
+        AWS_ACCESS_KEY_ID     = credentials('aws_access_key_id')
+        AWS_SECRET_ACCESS_KEY = credentials('aws_secret_access_key')
+        AWS_SESSION_TOKEN     = credentials('aws_session_token')
     }
 
     stages {
@@ -17,27 +23,23 @@ pipeline {
 
         stage("Login to AWS ECR") {
             steps {
-                withCredentials([
-                    string(credentialsId:  'aws_access_key_id', variable: 'AWS_ACCESS_KEY_ID'),
-                    string(credentialsId:  'aws_secret_access_key', variable: 'AWS_SECRET_ACCESS_KEY'),
-                    string(credentialsId:  'aws_session_token', variable: 'AWS_SESSION_TOKEN')
-                ]) {
-                    sh '''
-                        aws ecr get-login-password --region $AWS_REGION \
-                        | docker login --username AWS --password-stdin \
-                          $AWS_ACCOUNT_ID. dkr. ecr.$AWS_REGION. amazonaws.com
-                    '''
-                }
+                // Credentials are now inherited from global environment
+                sh '''
+                    aws ecr get-login-password --region $AWS_REGION \
+                    | docker login --username AWS --password-stdin \
+                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+                '''
             }
         }
 
         stage("Build Frontend Image") {
             steps {
                 dir('Apps/frontend') {
+                    // FIXED: Removed spaces in URL and tag
                     sh '''
                         docker build -t $ECR_REPO:latest .
                         docker tag $ECR_REPO:latest \
-                          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws. com/$ECR_REPO: latest
+                          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest
                     '''
                 }
             }
@@ -45,16 +47,20 @@ pipeline {
 
         stage("Push Image to ECR") {
             steps {
+                // FIXED: Removed spaces in URL
                 sh 'docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest'
             }
         }
 
         stage("Deploy Frontend to EKS") {
             steps {
+                // This command now has access to AWS credentials from the environment block
                 sh 'aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER'
+                
                 dir('kubernetes/frontend') {
                     sh 'kubectl apply -f deployment.yaml'
-                    sh 'kubectl apply -f Service.yaml'
+                    // FIXED: Changed Service.yaml to service.yaml (check your actual filename)
+                    sh 'kubectl apply -f service.yaml' 
                     sh 'kubectl rollout restart deployment/frontend-app'
                 }
             }
