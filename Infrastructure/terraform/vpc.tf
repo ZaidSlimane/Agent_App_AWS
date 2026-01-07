@@ -205,7 +205,7 @@ resource "aws_security_group_rule" "cluster_to_nodes_https" {
   from_port                = 443
   to_port                  = 443
   protocol                 = "tcp"
-  security_group_id        = aws_security_group.eks_cluster. id
+  security_group_id        = aws_security_group.eks_cluster.id
   source_security_group_id = aws_security_group.eks_nodes.id
   description              = "Allow control plane to communicate with nodes on HTTPS"
 }
