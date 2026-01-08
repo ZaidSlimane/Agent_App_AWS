@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: n8n
+  template:
+    metadata:
+      labels:
+        app: n8n
+    spec:
+      containers:
+        - name: n8n
+          image: 891377262030.dkr.ecr.us-east-1.amazonaws.com/agent_repo:latest
+          ports:
+            - containerPort: 5678
+          env:
+            # Basic Auth
+            - name: N8N_BASIC_AUTH_ACTIVE
+              value: "true"
+            - name: N8N_BASIC_AUTH_USER
+              value: "admin"
+            - name: N8N_BASIC_AUTH_PASSWORD
+              value: "Slimane2003"
+
+            # Disable email login
+            - name: N8N_USER_MANAGEMENT_DISABLED
+              value: "true"
+
+            # Allow cookies over HTTP (dev only)
+            - name: N8N_SECURE_COOKIE
+              value: "false"
+
+            # Correct production host
+            - name: N8N_HOST
+              value: "a14d2a34f1a334db09bbe5e81e2f1e4b-1258131808.us-east-1.elb.amazonaws.com"
+
+            - name: N8N_PROTOCOL
+              value: "http"
+
+            - name: N8N_PORT
+              value: "5678"
+
+            # Webhook URLs
+            - name: N8N_WEBHOOK_URL
+              value: "http://a14d2a34f1a334db09bbe5e81e2f1e4b-1258131808.us-east-1.elb.amazonaws.com"
+
+            - name: WEBHOOK_URL
+              value: "http://a14d2a34f1a334db09bbe5e81e2f1e4b-1258131808.us-east-1.elb.amazonaws.com"
+
+            # Disable telemetry
+            - name: N8N_DIAGNOSTICS_ENABLED
+              value: "false"
