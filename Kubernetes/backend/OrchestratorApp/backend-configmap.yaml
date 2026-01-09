@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: default
+data:
+  N8N_WEBHOOK_URL:  "http://n8n-service:5678/webhook/incoming-message"
+  LOG_LEVEL: "INFO"

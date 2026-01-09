@@ -1,0 +1,254 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION            = "us-east-1"
+        AWS_ACCOUNT_ID        = "058264399739"
+        ECR_REPO              = "agent_repo"
+        EKS_CLUSTER           = "lab-eks"
+        IMAGE_TAG             = "OrchestratorApp"
+        LATEST_TAG            = "latest"
+        
+      
+        APP_PATH              = "Apps\backend\OrchestratorService"
+        // Kubernetes manifests path
+        K8S_PATH              = "Kubernetes/backend/OrchestratorApp"
+
+        AWS_ACCESS_KEY_ID     = credentials('aws_access_key_id')
+        AWS_SECRET_ACCESS_KEY = credentials('aws_secret_access_key')
+        AWS_SESSION_TOKEN     = credentials('aws_session_token')
+    }
+
+    stages {
+
+        stage("Checkout") {
+            steps {
+                echo "Checking out source code..."
+                checkout scm
+            }
+        }
+
+        stage("Login to AWS ECR") {
+            steps {
+                sh '''
+                    echo "Logging into ECR..."
+                    aws ecr get-login-password --region $AWS_REGION \
+                    | docker login --username AWS --password-stdin \
+                      $AWS_ACCOUNT_ID. dkr.ecr.$AWS_REGION.amazonaws.com
+                '''
+            }
+        }
+
+        stage("Create ECR Repository if Not Exists") {
+            steps {
+                sh '''
+                    echo "Checking if ECR repository exists..."
+                    aws ecr describe-repositories --repository-names $ECR_REPO --region $AWS_REGION || \
+                    aws ecr create-repository --repository-name $ECR_REPO --region $AWS_REGION
+                '''
+            }
+        }
+
+        stage("Build Backend Docker Image") {
+            steps {
+                dir("${APP_PATH}") {
+                    sh '''
+                        echo "Building Docker image from ${APP_PATH}..."
+                        docker build -t backend:$IMAGE_TAG .
+                        docker tag backend:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+                        docker tag backend:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$LATEST_TAG
+                    '''
+                }
+            }
+        }
+
+        stage("Push Image to ECR") {
+            steps {
+                sh '''
+                    echo "Pushing image to ECR..."
+                    docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+                    docker push $AWS_ACCOUNT_ID. dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$LATEST_TAG
+                '''
+            }
+        }
+
+        stage("Update Kubernetes Manifests") {
+            steps {
+                dir("${K8S_PATH}") {
+                    sh '''
+                        echo "Updating image in deployment manifest..."
+                        sed -i "s|image: .*backend.*|image: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG|g" backend-deployment.yaml
+                    '''
+                }
+            }
+        }
+
+        stage("Deploy Backend to EKS") {
+            steps {
+                sh '''
+                    echo "Updating kubeconfig..."
+                    aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER
+                '''
+
+                dir("${K8S_PATH}") {
+                    sh '''
+                        echo "Applying Kubernetes manifests from ${K8S_PATH}..."
+                        
+                        # Apply ConfigMap
+                        kubectl apply -f backend-configmap.yaml
+                        
+                        # Apply Deployment
+                        kubectl apply -f backend-deployment. yaml
+                        
+                        # Apply Service
+                        kubectl apply -f backend-service.yaml
+
+                        echo "Waiting for deployment to be ready..."
+                        kubectl rollout status deployment/backend-deployment --timeout=5m
+                    '''
+                }
+            }
+        }
+
+        stage("Verify Deployment") {
+            steps {
+                sh '''
+                    echo "Verifying deployment..."
+                    kubectl get pods -l app=backend -o wide
+                    kubectl get service backend-service
+                    
+                    echo "Checking pod logs..."
+                    kubectl logs -l app=backend --tail=20 || true
+                '''
+            }
+        }
+
+        stage("Test Backend Connectivity") {
+            steps {
+                sh '''
+                    echo "Testing backend health endpoint..."
+                    
+                    # Wait for service to get an external IP
+                    sleep 30
+                    
+                    # Get the LoadBalancer URL
+                    BACKEND_URL=$(kubectl get service backend-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || echo "")
+                    
+                    if [ -n "$BACKEND_URL" ]; then
+                        echo "Backend URL: http://$BACKEND_URL"
+                        
+                        # Test health endpoint (wait up to 2 minutes)
+                        for i in {1..12}; do
+                            if curl -f -m 10 http://$BACKEND_URL/health; then
+                                echo "✅ Backend is healthy!"
+                                break
+                            else
+                                echo "Attempt $i:  Backend not ready yet, waiting..."
+                                sleep 10
+                            fi
+                        done
+                    else
+                        echo "⚠️ LoadBalancer URL not yet assigned.  Check manually with: kubectl get svc backend-service"
+                    fi
+                '''
+            }
+        }
+
+        stage("Test n8n Communication") {
+            steps {
+                sh '''
+                    echo "Testing backend to n8n communication..."
+                    
+                    # Get a backend pod name
+                    POD_NAME=$(kubectl get pods -l app=backend -o jsonpath='{.items[0].metadata.name}')
+                    
+                    if [ -n "$POD_NAME" ]; then
+                        echo "Testing from pod: $POD_NAME"
+                        
+                        # Test n8n connectivity from within the pod
+                        echo "Testing connection to n8n-service: 5678..."
+                        kubectl exec $POD_NAME -- curl -f -m 10 http://n8n-service:5678 && \
+                        echo "✅ Successfully connected to n8n!" || \
+                        echo "⚠️ Warning: Could not reach n8n service from backend pod"
+                    fi
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                echo "✅ ============================================="
+                echo "✅ DEPLOYMENT SUCCESSFUL!"
+                echo "✅ ============================================="
+                
+                sh '''
+                    echo ""
+                    echo "Build Number: $BUILD_NUMBER"
+                    echo "Image: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG"
+                    echo "App Code: ${APP_PATH}"
+                    echo "K8s Manifests: ${K8S_PATH}"
+                    echo ""
+                    echo "--- Pods ---"
+                    kubectl get pods -l app=backend -o wide
+                    echo ""
+                    echo "--- Service ---"
+                    kubectl get service backend-service
+                    echo ""
+                    
+                    BACKEND_LB=$(kubectl get service backend-service -o jsonpath='{.status.loadBalancer.ingress[0]. hostname}')
+                    if [ -n "$BACKEND_LB" ]; then
+                        echo "🌐 Backend URLs:"
+                        echo "   External:   http://$BACKEND_LB"
+                        echo "   Health:    http://$BACKEND_LB/health"
+                        echo "   Execute:   http://$BACKEND_LB/api/execute"
+                    else
+                        echo "⏳ LoadBalancer URL pending..."
+                    fi
+                    echo ""
+                    echo "🔗 Internal n8n connection:  http://n8n-service:5678"
+                    echo ""
+                    echo "============================================="
+                '''
+            }
+        }
+        
+        failure {
+            script {
+                echo "❌ ============================================="
+                echo "❌ DEPLOYMENT FAILED!"
+                echo "❌ ============================================="
+                
+                sh '''
+                    echo ""
+                    echo "Build Number: $BUILD_NUMBER"
+                    echo "App Code: ${APP_PATH}"
+                    echo "K8s Manifests: ${K8S_PATH}"
+                    echo ""
+                    echo "--- Pods Status ---"
+                    kubectl get pods -l app=backend || true
+                    echo ""
+                    echo "--- Recent Pod Logs ---"
+                    kubectl logs -l app=backend --tail=50 || true
+                    echo ""
+                    echo "--- Pod Descriptions ---"
+                    kubectl describe pods -l app=backend || true
+                    echo ""
+                    echo "--- Service Status ---"
+                    kubectl describe service backend-service || true
+                    echo ""
+                    echo "============================================="
+                '''
+            }
+        }
+        
+        always {
+            sh '''
+                echo "Cleaning up local Docker images..."
+                docker rmi backend:$IMAGE_TAG 2>/dev/null || true
+                docker rmi $AWS_ACCOUNT_ID.dkr. ecr.$AWS_REGION. amazonaws.com/$ECR_REPO:$IMAGE_TAG 2>/dev/null || true
+            '''
+        }
+    }
+}
