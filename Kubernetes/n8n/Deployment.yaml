@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: n8n
+  name: n8n-deployment
   namespace: default
 spec:
   replicas: 1
@@ -19,13 +19,19 @@ spec:
           ports:
             - containerPort: 5678
           env:
-            # Basic Auth
+            # Basic Auth (use Kubernetes Secret)
             - name: N8N_BASIC_AUTH_ACTIVE
               value: "true"
             - name: N8N_BASIC_AUTH_USER
-              value: "admin"
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-secret
+                  key: basic_user
             - name: N8N_BASIC_AUTH_PASSWORD
-              value: "Slimane2003"
+              valueFrom:
+                secretKeyRef:
+                  name: n8n-secret
+                  key: basic_password
 
             # Disable email login
             - name: N8N_USER_MANAGEMENT_DISABLED
@@ -35,23 +41,26 @@ spec:
             - name: N8N_SECURE_COOKIE
               value: "false"
 
-            # Correct production host
+            # Host + protocol
             - name: N8N_HOST
-              value: "a14d2a34f1a334db09bbe5e81e2f1e4b-1258131808.us-east-1.elb.amazonaws.com"
-
+              value: "n8n-service"
             - name: N8N_PROTOCOL
               value: "http"
-
             - name: N8N_PORT
               value: "5678"
 
-            # Webhook URLs
+            # Webhook URL (use service DNS)
             - name: N8N_WEBHOOK_URL
-              value: "http://a14d2a34f1a334db09bbe5e81e2f1e4b-1258131808.us-east-1.elb.amazonaws.com"
-
-            - name: WEBHOOK_URL
-              value: "http://a14d2a34f1a334db09bbe5e81e2f1e4b-1258131808.us-east-1.elb.amazonaws.com"
+              value: "http://n8n-service"
 
             # Disable telemetry
             - name: N8N_DIAGNOSTICS_ENABLED
               value: "false"
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
