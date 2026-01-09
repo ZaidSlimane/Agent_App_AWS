@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: n8n
-          image: 891377262030.dkr.ecr.us-east-1.amazonaws.com/agent_repo:latest
+          image: 058264399739.dkr.ecr.us-east-1.amazonaws.com/agent_repo:n8n
           ports:
             - containerPort: 5678
           env:
