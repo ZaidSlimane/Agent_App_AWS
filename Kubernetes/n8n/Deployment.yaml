@@ -1,11 +1,11 @@
 apiVersion: apps/v1
-kind: Deployment
+kind:  Deployment
 metadata:
-  name: n8n-deployment
+  name:  n8n-deployment
   namespace: default
 spec:
   replicas: 1
-  selector:
+  selector: 
     matchLabels:
       app: n8n
   template:
@@ -13,28 +13,22 @@ spec:
       labels:
         app: n8n
     spec:
-      containers:
+      containers: 
         - name: n8n
           image: 058264399739.dkr.ecr.us-east-1.amazonaws.com/agent_repo:n8n
           ports:
             - containerPort: 5678
           env:
-            # Basic Auth (use Kubernetes Secret)
+            # Basic Auth (hardcoded - change these values)
             - name: N8N_BASIC_AUTH_ACTIVE
               value: "true"
             - name: N8N_BASIC_AUTH_USER
-              valueFrom:
-                secretKeyRef:
-                  name: n8n-secret
-                  key: basic_user
+              value: "admin"
             - name: N8N_BASIC_AUTH_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: n8n-secret
-                  key: basic_password
+              value: "Slimane2003"
 
             # Disable email login
-            - name: N8N_USER_MANAGEMENT_DISABLED
+            - name:  N8N_USER_MANAGEMENT_DISABLED
               value: "true"
 
             # Allow cookies over HTTP (dev only)
@@ -57,10 +51,10 @@ spec:
             - name: N8N_DIAGNOSTICS_ENABLED
               value: "false"
 
-          resources:
+          resources: 
             requests:
-              cpu: "250m"
-              memory: "512Mi"
-            limits:
+              cpu:  "250m"
+              memory:  "512Mi"
+            limits: 
               cpu: "500m"
               memory: "1Gi"
